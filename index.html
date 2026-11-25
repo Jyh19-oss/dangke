@@ -154,6 +154,10 @@ h2{font-family:var(--serif);font-size:23px;font-weight:600;margin:0;letter-spaci
 .chip{font-size:11px;padding:1px 7px;border:1px solid var(--line);color:var(--ink-2);background:var(--paper)}
 .chip.hot{border-color:rgba(142,27,23,.4);color:var(--red)}
 .dfoot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:13px;padding-top:11px;border-top:1px solid var(--line-soft)}
+.dright{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.dreset{font-family:var(--sans);font-size:11.5px;color:var(--ink-3);background:none;border:1px dashed var(--line);padding:5px 9px;min-height:30px;cursor:pointer;letter-spacing:.02em}
+.dreset:hover{color:var(--red);border-color:var(--red)}
+.qreset{font-size:12px;padding:5px 10px;min-height:32px}
 .dtime{font-size:11.5px;color:var(--ink-3);letter-spacing:.04em}
 .dgo{font-size:12.5px;color:var(--red);letter-spacing:.05em;display:flex;align-items:center;gap:5px}
 .dgo svg{width:13px;height:13px}
@@ -367,7 +371,7 @@ h2{font-family:var(--serif);font-size:23px;font-weight:600;margin:0;letter-spaci
 <footer class="foot">
   <div class="wrap row">
     <p id="footNote">题目来自你上传的题库；简答、论述为关键词式简版，详细版可展开对照。</p>
-    <button class="linkbtn" id="btnReset">重置全部进度</button>
+    <button class="linkbtn" id="btnReset">清空当前版本全部进度</button>
   </div>
 </footer>
 
@@ -477,7 +481,10 @@ function viewPlan(){
       <div class="dtip">${d.tip}</div>
       <div class="dfoot">
         <span class="dtime">${d.ids.length} 题 · 约 ${d.min} 分钟${answered ? " · 已做 " + answered : ""}</span>
-        <span class="dgo">进入<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+        <span class="dright">
+          ${answered ? `<button class="dreset" type="button" data-reset="${d.n}">重置本日</button>` : ""}
+          <span class="dgo">进入<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+        </span>
       </div>
       <i class="bar-mini" style="width:${pct}%"></i>
     </div>`;
@@ -524,9 +531,32 @@ function viewPlan(){
   document.querySelectorAll(".card").forEach(el => {
     const go = () => startDay(Number(el.dataset.day));
     el.addEventListener("click", go);
-    el.addEventListener("keydown", e => { if(e.key === "Enter" || e.key === " "){ e.preventDefault(); go(); } });
+    el.addEventListener("keydown", e => {
+      if(e.target !== el) return;
+      if(e.key === "Enter" || e.key === " "){ e.preventDefault(); go(); }
+    });
+  });
+  document.querySelectorAll(".dreset").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      resetDay(Number(btn.dataset.reset));
+    });
   });
   scrollTo({ top:0, behavior:"smooth" });
+}
+
+/* ----- 只重置某一天 ----- */
+function resetDay(n){
+  const d = DAYS.find(x => x.n === n);
+  if(!d) return;
+  const cnt = d.ids.filter(id => (id in store.ans) || (id in store.self) || (id in store.open)).length;
+  if(!cnt){ alert(`Day ${n} 还没有作答记录，不用重置。`); return; }
+  if(!confirm(`只清空「Day ${n} · ${d.title}」这 ${cnt} 条记录？其他天和答案自评都不动，且不能撤销。`)) return;
+  d.ids.forEach(id => { delete store.ans[id]; delete store.self[id]; delete store.open[id]; });
+  save(); renderTop();
+  if(view.mode === "quiz" && view.day === n){ view.idx = 0; viewQuiz(); }
+  else viewPlan();
 }
 
 /* ----- 开始某天 ----- */
@@ -632,6 +662,7 @@ function viewQuiz(){
       <button class="back" id="btnBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>十天日程</button>
       <span class="spacer"></span>
       <div class="qtitle">Day ${String(view.day).padStart(2,"0")} · ${d.title}<span>${d.sub}</span></div>
+      <button class="topbtn qreset" id="btnResetDay" type="button">重置本日</button>
       <span class="qprogress">${view.idx+1} / ${ids.length}</span>
     </div>
     <div class="sheet">${sheet}</div>
@@ -660,6 +691,8 @@ function viewQuiz(){
 
 function wireQuiz(q, ids){
   document.getElementById("btnBack").onclick = () => { viewPlan(); };
+  const rd = document.getElementById("btnResetDay");
+  if(rd) rd.onclick = () => resetDay(view.day);
   const prev = document.getElementById("btnPrev");
   prev.onclick = () => { if(view.idx>0){ view.idx--; viewQuiz(); } };
   document.getElementById("btnNext").onclick = () => {
@@ -851,7 +884,9 @@ function viewWrong(){
 document.getElementById("btnWrong").onclick = () => viewWrong();
 document.getElementById("btnAnswers").onclick = () => { abFilter = { type:"全部", key:"", mode:"简" }; viewAnswers(); };
 document.getElementById("btnReset").onclick = () => {
-  if(confirm("确定清空所有作答记录和自评吗？这一步不能撤销。")){
+  const n = answeredCount();
+  if(!n){ alert("当前版本还没有作答记录。"); return; }
+  if(confirm(`只清空「${BANKS[BANK].name}」这个版本的 ${n} 条作答记录？另一个版本的进度不受影响，且不能撤销。`)){
     store = { ans:{}, self:{}, open:{} };
     save(); renderTop(); viewPlan();
   }
